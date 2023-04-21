@@ -4,7 +4,7 @@ public class GoToDestinationSimulator : IDisposable
     readonly Dictionary<int, TrackedRoute> TrackedRoutes = new();
     public Task<PositionTrackerLatLong> SubscribeAcync(RouteInfo routeInfo)
     {
-        TrackedRoute trackedRoute = GetTrackedRouteFake(routeInfo, routeInfo.CallBack);
+        TrackedRoute trackedRoute = GetTrackedRouteFake(routeInfo);
         TrackedRoutes.TryAdd(routeInfo.RouteId, trackedRoute);
         NotifyPosition(routeInfo.RouteId);
         return Task.FromResult(trackedRoute.Origin);
@@ -13,27 +13,45 @@ public class GoToDestinationSimulator : IDisposable
     private void NotifyPosition(int routeId)
     {
         TrackedRoute trackedOrder = TrackedRoutes[routeId];
-        PositionTrackerLatLong currentPosition = trackedOrder.Destination;
-        double distance;
-        bool finished = false;
-
-        double elapsetTimeHours = (DateTime.Now - trackedOrder.TravelStartTime).TotalSeconds / 3600;
-        distance = trackedOrder.SpeedKmHr * elapsetTimeHours;
-        if(distance >= trackedOrder.TotalDistanceKm)
-        {
-            distance = trackedOrder.TotalDistanceKm;
-        }
-        currentPosition = currentPosition.AddKm(trackedOrder.Degree, distance);
-
-        PositionNotification notification = new PositionNotification(routeId, currentPosition, distance, finished);
+        PositionNotification notification = GetPositionNotification(routeId);
         trackedOrder.Callback(notification);
-        if(finished)
+        if(notification.Finished)
             UnSubscribe(routeId);
     }
 
-    private TrackedRoute GetTrackedRouteFake(RouteInfo routeInfo, Action<PositionNotification> callBack)
+    private PositionNotification GetPositionNotification(int routeId)
+    {     
+        TrackedRoute trackedRoute = TrackedRoutes[routeId]; 
+        PositionNotification notification;
+        double elapsetTimeHours = (DateTime.Now - trackedRoute.TravelStartTime).TotalHours;
+        if(elapsetTimeHours > 0)
+        {
+            double currentDistanceInKm = trackedRoute.SpeedKmHr * elapsetTimeHours;
+            if (currentDistanceInKm >= trackedRoute.TotalDistanceKm)
+            {
+                currentDistanceInKm = trackedRoute.TotalDistanceKm;
+            }
+            PositionTrackerLatLong currentPosition = trackedRoute.Origin.AddKm(trackedRoute.Degree, currentDistanceInKm);
+            notification =  new PositionNotification(routeId, currentPosition, currentDistanceInKm, 
+                currentDistanceInKm >= trackedRoute.TotalDistanceKm);              
+        }
+        else
+        {
+           notification =  new PositionNotification(routeId, trackedRoute.Origin, 0, false);
+        }
+        return notification;
+    }
+
+    private TrackedRoute GetTrackedRouteFake(RouteInfo routeInfo)
     {
-        throw new NotImplementedException();
+        double degree = new Random().Next(0, 360);
+        double distanceInMetter = routeInfo.RouteDistanceKm * 1000.0;
+        PositionTrackerLatLong origin = routeInfo.Destination.AddMetters(degree, -distanceInMetter);
+        System.Timers.Timer timer = new System.Timers.Timer(routeInfo.NotificationIntervalInSeconds * 1000);
+        timer.Elapsed += (sender, e) => NotifyPosition(routeInfo.RouteId);
+        timer.Start();
+        return new TrackedRoute(origin, routeInfo.Destination, degree, routeInfo.RouteDistanceKm, 
+            routeInfo.SpeedKmHr, routeInfo.TravelStartTime, routeInfo.CallBack, timer);
     }
 
     public void UnSubscribe(int routeId)
