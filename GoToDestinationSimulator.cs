@@ -2,6 +2,7 @@
 public class GoToDestinationSimulator : IDisposable
 {
     readonly Dictionary<int, TrackedRoute> TrackedRoutes = new();
+    readonly Dictionary<int, RouteCache> RoutesCache = new();
     public Task<PositionTrackerLatLong> SubscribeAcync(RouteInfo routeInfo)
     {
         TrackedRoute trackedRoute = GetTrackedRouteFake(routeInfo);
@@ -44,13 +45,21 @@ public class GoToDestinationSimulator : IDisposable
 
     private TrackedRoute GetTrackedRouteFake(RouteInfo routeInfo)
     {
-        double degree = new Random().Next(0, 360);
-        double distanceInMetter = routeInfo.RouteDistanceKm * 1000.0;
-        PositionTrackerLatLong origin = routeInfo.Destination.AddMetters(degree, -distanceInMetter);
+        RouteCache route;
+        if(!RoutesCache.TryGetValue(routeInfo.RouteId, out route))
+        {        
+            route = new RouteCache();
+            double degree = new Random().Next(0, 360);
+            double distanceInMetter = routeInfo.RouteDistanceKm * 1000.0;
+            PositionTrackerLatLong origin = routeInfo.Destination.AddMetters(degree, -distanceInMetter);
+            route.Origin = origin;
+            route.Degree = degree;
+            RoutesCache.Add(routeInfo.RouteId, route);
+        }
         System.Timers.Timer timer = new System.Timers.Timer(routeInfo.NotificationIntervalInSeconds * 1000);
         timer.Elapsed += (sender, e) => NotifyPosition(routeInfo.RouteId);
         timer.Start();
-        return new TrackedRoute(origin, routeInfo.Destination, degree, routeInfo.RouteDistanceKm, 
+        return new TrackedRoute(route.Origin, routeInfo.Destination, route.Degree, routeInfo.RouteDistanceKm, 
             routeInfo.SpeedKmHr, routeInfo.TravelStartTime, routeInfo.CallBack, timer);
     }
 
